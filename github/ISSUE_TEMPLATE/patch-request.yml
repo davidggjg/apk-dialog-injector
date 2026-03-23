@@ -12,7 +12,7 @@ body:
     id: apk_url
     attributes:
       label: קישור לקובץ APK
-      description: העלה את ה‑APK לאתר כלשהו (למשל Google Drive, Dropbox) וספק קישור ציבורי להורדה
+      description: העלה את ה‑APK לאתר כלשהו וספק קישור ציבורי
       placeholder: https://example.com/app.apk
     validations:
       required: true
@@ -21,7 +21,6 @@ body:
     id: title
     attributes:
       label: כותרת הדיאלוג
-      description: מה תהיה הכותרת שתופיע בחלון?
       placeholder: הודעה חשובה
     validations:
       required: true
@@ -30,7 +29,6 @@ body:
     id: description
     attributes:
       label: תוכן ההודעה
-      description: מה יופיע בגוף הדיאלוג?
       placeholder: הקלד את ההודעה כאן...
     validations:
       required: true
@@ -39,14 +37,12 @@ body:
     id: image_url
     attributes:
       label: קישור לתמונה (אופציונלי)
-      description: אם תרצה תמונה או אייקון שיופיעו בדיאלוג, ספק קישור
       placeholder: https://example.com/image.png
 
   - type: checkboxes
     id: terms
     attributes:
       label: אישור
-      description: לפני שליחת הבקשה, אנא אשר
       options:
-        - label: אני מאשר כי יש לי זכות לשנות את קובץ ה‑APK הזה (למשל, זה APK שלי או קוד פתוח).
+        - label: אני מאשר כי יש לי זכות לשנות את קובץ ה‑APK הזה.
           required: true
