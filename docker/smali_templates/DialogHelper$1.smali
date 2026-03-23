@@ -2,12 +2,10 @@
 .super Ljava/lang/Object;
 .implements Landroid/content/DialogInterface$OnClickListener;
 
-# fields
 .field final synthetic val$checkBox:Landroid/widget/CheckBox;
 .field final synthetic val$context:Landroid/content/Context;
 
 
-# direct methods
 .method constructor <init>(Landroid/widget/CheckBox;Landroid/content/Context;)V
     .locals 0
     iput-object p1, p0, Lmy/app/DialogHelper$1;->val$checkBox:Landroid/widget/CheckBox;
@@ -17,16 +15,13 @@
 .end method
 
 
-# virtual methods
 .method public onClick(Landroid/content/DialogInterface;I)V
     .locals 1
 
-    # בדיקה אם ה‑CheckBox מסומן
     iget-object p1, p0, Lmy/app/DialogHelper$1;->val$checkBox:Landroid/widget/CheckBox;
     invoke-virtual {p1}, Landroid/widget/CheckBox;->isChecked()Z
     move-result p1
     if-eqz p1, :cond_0
-        # שמירה ב‑SharedPreferences
         iget-object p1, p0, Lmy/app/DialogHelper$1;->val$context:Landroid/content/Context;
         const-string p2, "dialog_prefs"
         const/4 v0, 0x0
