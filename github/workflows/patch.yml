@@ -1,0 +1,66 @@
+name: Patch APK from Issue
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  patch:
+    if: contains(github.event.issue.labels.*.name, 'patch-request')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Docker image
+        run: |
+          docker build -t apk-patcher ./docker
+
+      - name: Extract APK URL and details from issue
+        id: extract
+        run: |
+          # נשתמש ב־GitHub CLI כדי לקבל את תוכן ה‑Issue
+          gh issue view ${{ github.event.issue.number }} --json body --jq .body > issue_body.txt
+          # פשט: נניח שהמשתמש כתב בשורות נפרדות:
+          # APK_URL: <link>
+          # TITLE: <title>
+          # DESCRIPTION: <description>
+          # IMAGE_URL: <image_url>
+          APK_URL=$(grep -i "APK_URL:" issue_body.txt | sed 's/APK_URL: *//i')
+          TITLE=$(grep -i "TITLE:" issue_body.txt | sed 's/TITLE: *//i')
+          DESC=$(grep -i "DESCRIPTION:" issue_body.txt | sed 's/DESCRIPTION: *//i')
+          IMG_URL=$(grep -i "IMAGE_URL:" issue_body.txt | sed 's/IMAGE_URL: *//i')
+          echo "APK_URL=$APK_URL" >> $GITHUB_OUTPUT
+          echo "TITLE=$TITLE" >> $GITHUB_OUTPUT
+          echo "DESC=$DESC" >> $GITHUB_OUTPUT
+          echo "IMG_URL=$IMG_URL" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download APK
+        run: |
+          wget -O original.apk "${{ steps.extract.outputs.APK_URL }}"
+
+      - name: Run patcher
+        run: |
+          docker run --rm -v $(pwd):/work apk-patcher \
+            /work/original.apk \
+            "${{ steps.extract.outputs.TITLE }}" \
+            "${{ steps.extract.outputs.DESC }}" \
+            "${{ steps.extract.outputs.IMG_URL }}"
+
+      - name: Upload patched APK to issue
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "✅ ה‑APK תוקן בהצלחה! ניתן להוריד אותו [כאן](/work/patched.apk) (הקובץ צורף לתגובה זו)."
+          gh issue comment ${{ github.event.issue.number }} \
+            --attach /work/patched.apk
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
