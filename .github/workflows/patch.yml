@@ -36,7 +36,7 @@ jobs:
           python3 patch_apk.py ${{ env.APK_PATH }} ${{ github.event.inputs.mode }}
 
       - name: Upload Result
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: patched-apk
           path: output/patched_signed.apk
