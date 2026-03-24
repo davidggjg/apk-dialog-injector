@@ -29,8 +29,26 @@ jobs:
       - name: Build APK
         run: gradle assembleRelease
 
+      - name: Sign APK
+        run: |
+          keytool -genkeypair -v \
+            -keystore keystore.jks \
+            -alias patcher \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass patcher123 \
+            -keypass patcher123 \
+            -dname "CN=Patcher,O=Patcher,C=US"
+          apksigner sign \
+            --ks keystore.jks \
+            --ks-pass pass:patcher123 \
+            --key-pass pass:patcher123 \
+            --out app/build/outputs/apk/release/app-release-signed.apk \
+            app/build/outputs/apk/release/app-release-unsigned.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: apk-dialog-injector
-          path: app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/release/app-release-signed.apk
