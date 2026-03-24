@@ -1,15 +1,20 @@
 package com.apkpatcher;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.Settings;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
 import org.json.JSONObject;
 import java.io.*;
 import java.net.*;
@@ -28,6 +33,21 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         prefs = getSharedPreferences("apkpatcher_prefs", MODE_PRIVATE);
+
+        // בקש הרשאות
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                Intent intent = new Intent(
+                    Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                startActivity(intent);
+            }
+        } else {
+            ActivityCompat.requestPermissions(this,
+                new String[]{
+                    Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+                }, 100);
+        }
 
         tvApkPath = findViewById(R.id.tvApkPath);
         tvLog     = findViewById(R.id.tvLog);
@@ -89,7 +109,7 @@ public class MainActivity extends AppCompatActivity {
             toast("בחר APK קודם!");
             return;
         }
-        if (etTitle.getText().toString().isEmpty()) {
+        if (mode.equals("inject") && etTitle.getText().toString().isEmpty()) {
             toast("הכנס כותרת!");
             return;
         }
@@ -104,7 +124,26 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_SHORT).show());
     }
 
-    class PatchTask extends AsyncTask<Void, String, Boolean> {
+    private void installApk(File apkFile) {
+        Intent intent;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            Uri apkUri = androidx.core.content.FileProvider.getUriForFile(
+                this, getPackageName() + ".provider", apkFile);
+            intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(apkUri,
+                "application/vnd.android.package-archive");
+            intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                Intent.FLAG_ACTIVITY_NEW_TASK);
+        } else {
+            intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(Uri.fromFile(apkFile),
+                "application/vnd.android.package-archive");
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        }
+        startActivity(intent);
+    }
+
+    class PatchTask extends AsyncTask<Void, String, File> {
         String mode;
         PatchTask(String mode) { this.mode = mode; }
 
@@ -114,7 +153,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        protected Boolean doInBackground(Void... v) {
+        protected File doInBackground(Void... v) {
             try {
                 publishProgress("מעדכן הגדרות...");
                 updateConfig();
@@ -125,16 +164,16 @@ public class MainActivity extends AppCompatActivity {
                 publishProgress("מפעיל GitHub Action...");
                 triggerAction(mode);
 
-                publishProgress("ממתין לסיום...");
+                publishProgress("ממתין לסיום (30 שניות)...");
                 Thread.sleep(30000);
 
                 publishProgress("מוריד תוצאה...");
-                downloadResult();
+                File result = downloadResult();
 
-                return true;
+                return result;
             } catch (Exception e) {
                 publishProgress("✗ שגיאה: " + e.getMessage());
-                return false;
+                return null;
             }
         }
 
@@ -144,10 +183,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        protected void onPostExecute(Boolean success) {
-            if (success) {
-                log("✓ הושלם! הקובץ נשמר בתיקיית Downloads");
-                toast("הושלם בהצלחה!");
+        protected void onPostExecute(File apkFile) {
+            if (apkFile != null && apkFile.exists()) {
+                log("✓ הושלם! מתקין...");
+                toast("הושלם! מתקין APK...");
+                installApk(apkFile);
             } else {
                 log("✗ נכשל");
             }
@@ -178,7 +218,7 @@ public class MainActivity extends AppCompatActivity {
             byte[] bytes = toBytes(is);
             String content = android.util.Base64.encodeToString(
                 bytes, android.util.Base64.NO_WRAP);
-            String name = selectedApk.getLastPathSegment();
+            String name = "input.apk";
             String sha = getFileSha("input/" + name);
 
             JSONObject body = new JSONObject();
@@ -201,32 +241,40 @@ public class MainActivity extends AppCompatActivity {
                 body.toString());
         }
 
-        private void downloadResult() throws Exception {
-            String resp = githubGet("actions/runs?status=completed&per_page=1");
+        private File downloadResult() throws Exception {
+            // חכה שה-Action יתחיל
+            Thread.sleep(5000);
+
+            // קבל את ה-run האחרון
+            String resp = githubGet(
+                "actions/runs?status=completed&per_page=1");
             JSONObject json = new JSONObject(resp);
             String runId = json.getJSONArray("workflow_runs")
                               .getJSONObject(0)
                               .getString("id");
 
-            String artResp = githubGet("actions/runs/" + runId + "/artifacts");
+            String artResp = githubGet(
+                "actions/runs/" + runId + "/artifacts");
             JSONObject artJson = new JSONObject(artResp);
             String downloadUrl = artJson.getJSONArray("artifacts")
                                        .getJSONObject(0)
                                        .getString("archive_download_url");
 
+            // הורד לתיקיית cache
             URL url = new URL(downloadUrl);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestProperty("Authorization", "token " + getToken());
+            conn.setInstanceFollowRedirects(true);
             InputStream is = conn.getInputStream();
-            File out = new File(
-                android.os.Environment.getExternalStoragePublicDirectory(
-                    android.os.Environment.DIRECTORY_DOWNLOADS),
-                "patched_signed.apk");
-            FileOutputStream fos = new FileOutputStream(out);
+
+            File outFile = new File(getCacheDir(), "patched_signed.apk");
+            FileOutputStream fos = new FileOutputStream(outFile);
             byte[] buf = new byte[4096];
             int n;
             while ((n = is.read(buf)) != -1) fos.write(buf, 0, n);
             fos.close();
+
+            return outFile;
         }
 
         private String getFileSha(String path) {
