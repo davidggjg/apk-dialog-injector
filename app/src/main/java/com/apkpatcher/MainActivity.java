@@ -2,15 +2,17 @@ package com.apkpatcher;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
-import android.os.Bundle;
 import android.os.AsyncTask;
+import android.os.Bundle;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 import org.json.JSONObject;
 import java.io.*;
 import java.net.*;
-import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -18,16 +20,14 @@ public class MainActivity extends AppCompatActivity {
     private Uri selectedApk;
     private TextView tvApkPath, tvLog;
     private EditText etTitle, etMessage, etButton1, etButton2, etButton3;
-
-    // ← כאן תכניס את ה-Token שלך מגיטהאב
-    private static final String GITHUB_TOKEN = "YOUR_GITHUB_TOKEN";
-    private static final String GITHUB_OWNER = "davidggjg";
-    private static final String GITHUB_REPO  = "apk-dialog-injector";
+    private SharedPreferences prefs;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        prefs = getSharedPreferences("apkpatcher_prefs", MODE_PRIVATE);
 
         tvApkPath = findViewById(R.id.tvApkPath);
         tvLog     = findViewById(R.id.tvLog);
@@ -41,6 +41,27 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btnInject).setOnClickListener(v -> runAction("inject"));
         findViewById(R.id.btnRemove).setOnClickListener(v -> runAction("remove"));
     }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        menu.add(0, 1, 0, "הגדרות")
+            .setIcon(android.R.drawable.ic_menu_preferences)
+            .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == 1) {
+            startActivity(new Intent(this, SettingsActivity.class));
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    private String getToken()    { return prefs.getString("github_token", ""); }
+    private String getUsername() { return prefs.getString("github_username", ""); }
+    private String getRepo()     { return prefs.getString("github_repo", ""); }
 
     private void pickApk() {
         Intent i = new Intent(Intent.ACTION_GET_CONTENT);
@@ -59,6 +80,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void runAction(String mode) {
+        if (getToken().isEmpty()) {
+            toast("הכנס GitHub Token בהגדרות!");
+            startActivity(new Intent(this, SettingsActivity.class));
+            return;
+        }
         if (selectedApk == null) {
             toast("בחר APK קודם!");
             return;
@@ -90,29 +116,24 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected Boolean doInBackground(Void... v) {
             try {
-                // 1. עדכן config.json
                 publishProgress("מעדכן הגדרות...");
                 updateConfig();
 
-                // 2. העלה APK לתיקיית input
                 publishProgress("מעלה APK...");
                 uploadApk();
 
-                // 3. הפעל Action
                 publishProgress("מפעיל GitHub Action...");
                 triggerAction(mode);
 
-                // 4. המתן לסיום
                 publishProgress("ממתין לסיום...");
                 Thread.sleep(30000);
 
-                // 5. הורד תוצאה
                 publishProgress("מוריד תוצאה...");
                 downloadResult();
 
                 return true;
             } catch (Exception e) {
-                publishProgress("שגיאה: " + e.getMessage());
+                publishProgress("✗ שגיאה: " + e.getMessage());
                 return false;
             }
         }
@@ -142,8 +163,6 @@ public class MainActivity extends AppCompatActivity {
 
             String content = android.util.Base64.encodeToString(
                 cfg.toString().getBytes(), android.util.Base64.NO_WRAP);
-
-            // קבל SHA הנוכחי
             String sha = getFileSha("config.json");
 
             JSONObject body = new JSONObject();
@@ -157,9 +176,9 @@ public class MainActivity extends AppCompatActivity {
         private void uploadApk() throws Exception {
             InputStream is = getContentResolver().openInputStream(selectedApk);
             byte[] bytes = toBytes(is);
-            String content = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
+            String content = android.util.Base64.encodeToString(
+                bytes, android.util.Base64.NO_WRAP);
             String name = selectedApk.getLastPathSegment();
-
             String sha = getFileSha("input/" + name);
 
             JSONObject body = new JSONObject();
@@ -178,11 +197,11 @@ public class MainActivity extends AppCompatActivity {
             body.put("ref", "main");
             body.put("inputs", inputs);
 
-            githubPost("actions/workflows/patch.yml/dispatches", body.toString());
+            githubPost("actions/workflows/patch.yml/dispatches",
+                body.toString());
         }
 
         private void downloadResult() throws Exception {
-            // קבל את ה-artifact האחרון
             String resp = githubGet("actions/runs?status=completed&per_page=1");
             JSONObject json = new JSONObject(resp);
             String runId = json.getJSONArray("workflow_runs")
@@ -193,13 +212,11 @@ public class MainActivity extends AppCompatActivity {
             JSONObject artJson = new JSONObject(artResp);
             String downloadUrl = artJson.getJSONArray("artifacts")
                                        .getJSONObject(0)
-                                       .getJSONObject("archive_download_url")
-                                       .toString();
+                                       .getString("archive_download_url");
 
-            // הורד לתיקיית Downloads
             URL url = new URL(downloadUrl);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestProperty("Authorization", "token " + GITHUB_TOKEN);
+            conn.setRequestProperty("Authorization", "token " + getToken());
             InputStream is = conn.getInputStream();
             File out = new File(
                 android.os.Environment.getExternalStoragePublicDirectory(
@@ -224,19 +241,19 @@ public class MainActivity extends AppCompatActivity {
 
         private String githubGet(String endpoint) throws Exception {
             URL url = new URL("https://api.github.com/repos/" +
-                GITHUB_OWNER + "/" + GITHUB_REPO + "/" + endpoint);
+                getUsername() + "/" + getRepo() + "/" + endpoint);
             HttpURLConnection c = (HttpURLConnection) url.openConnection();
-            c.setRequestProperty("Authorization", "token " + GITHUB_TOKEN);
+            c.setRequestProperty("Authorization", "token " + getToken());
             c.setRequestProperty("Accept", "application/vnd.github.v3+json");
             return new String(toBytes(c.getInputStream()));
         }
 
         private void githubPut(String endpoint, String body) throws Exception {
             URL url = new URL("https://api.github.com/repos/" +
-                GITHUB_OWNER + "/" + GITHUB_REPO + "/" + endpoint);
+                getUsername() + "/" + getRepo() + "/" + endpoint);
             HttpURLConnection c = (HttpURLConnection) url.openConnection();
             c.setRequestMethod("PUT");
-            c.setRequestProperty("Authorization", "token " + GITHUB_TOKEN);
+            c.setRequestProperty("Authorization", "token " + getToken());
             c.setRequestProperty("Content-Type", "application/json");
             c.setDoOutput(true);
             c.getOutputStream().write(body.getBytes());
@@ -245,10 +262,10 @@ public class MainActivity extends AppCompatActivity {
 
         private void githubPost(String endpoint, String body) throws Exception {
             URL url = new URL("https://api.github.com/repos/" +
-                GITHUB_OWNER + "/" + GITHUB_REPO + "/" + endpoint);
+                getUsername() + "/" + getRepo() + "/" + endpoint);
             HttpURLConnection c = (HttpURLConnection) url.openConnection();
             c.setRequestMethod("POST");
-            c.setRequestProperty("Authorization", "token " + GITHUB_TOKEN);
+            c.setRequestProperty("Authorization", "token " + getToken());
             c.setRequestProperty("Content-Type", "application/json");
             c.setDoOutput(true);
             c.getOutputStream().write(body.getBytes());
