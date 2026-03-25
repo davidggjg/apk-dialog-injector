@@ -1,2 +1,0 @@
-rootProject.name = "apk-dialog-injector"
-include(":app")
